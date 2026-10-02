@@ -8,7 +8,10 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	authorizationv1 "k8s.io/api/authorization/v1"
+	"k8s.io/client-go/discovery/cached/disk"
+	"k8s.io/client-go/rest"
 )
 
 func TestMakeSAR(t *testing.T) {
@@ -194,4 +197,26 @@ func TestCheckCacheBool(t *testing.T) {
 			assert.Equal(t, u.actual, val)
 		})
 	}
+}
+
+func TestInvalidateStaleDiscovery(t *testing.T) {
+	c, err := disk.NewCachedDiscoveryClientForConfig(&rest.Config{Host: "http://localhost:1"}, t.TempDir(), t.TempDir(), time.Hour)
+	require.NoError(t, err)
+	a := NewTestAPIClient()
+
+	// Never invalidated: must invalidate and record the time.
+	assert.True(t, a.discInvalidatedAt.IsZero())
+	a.invalidateStaleDiscovery(c)
+	assert.WithinDuration(t, time.Now(), a.discInvalidatedAt, time.Second)
+
+	// Recently invalidated: must be left alone.
+	recent := time.Now().Add(-time.Minute)
+	a.discInvalidatedAt = recent
+	a.invalidateStaleDiscovery(c)
+	assert.Equal(t, recent, a.discInvalidatedAt)
+
+	// Expired: invalidates again.
+	a.discInvalidatedAt = time.Now().Add(-2 * cacheExpiry)
+	a.invalidateStaleDiscovery(c)
+	assert.WithinDuration(t, time.Now(), a.discInvalidatedAt, time.Second)
 }

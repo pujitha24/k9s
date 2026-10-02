@@ -47,6 +47,7 @@ type APIClient struct {
 	nsClient          dynamic.NamespaceableResourceInterface
 	mxsClient         *versioned.Clientset
 	cachedClient      *disk.CachedDiscoveryClient
+	discInvalidatedAt time.Time
 	config            *Config
 	mx                sync.RWMutex
 	cache             *cache.LRUExpireCache
@@ -492,6 +493,7 @@ func (a *APIClient) CachedDiscovery() (*disk.CachedDiscoveryClient, error) {
 	}
 
 	if c := a.getCachedClient(); c != nil {
+		a.invalidateStaleDiscovery(c)
 		return c, nil
 	}
 
@@ -512,9 +514,31 @@ func (a *APIClient) CachedDiscovery() (*disk.CachedDiscoveryClient, error) {
 	if err != nil {
 		return nil, err
 	}
+	// The disk cache may be younger than its TTL yet stale, so start live.
+	c.Invalidate()
+	a.mx.Lock()
+	a.discInvalidatedAt = time.Now()
+	a.mx.Unlock()
 	a.setCachedClient(c)
 
 	return a.getCachedClient(), nil
+}
+
+// invalidateStaleDiscovery invalidates the discovery client once per cache
+// expiry. The client's in-memory cache never expires on its own, so without
+// this, API groups and versions created after startup are never discovered.
+func (a *APIClient) invalidateStaleDiscovery(c *disk.CachedDiscoveryClient) {
+	a.mx.Lock()
+	due := time.Since(a.discInvalidatedAt) >= cacheExpiry
+	if due {
+		a.discInvalidatedAt = time.Now()
+	}
+	a.mx.Unlock()
+
+	// Invalidate may block on in-flight discovery, so don't hold the lock.
+	if due {
+		c.Invalidate()
+	}
 }
 
 // DynDial returns a handle to a dynamic interface.
@@ -562,6 +586,9 @@ func (a *APIClient) invalidateCache() error {
 		return err
 	}
 	dial.Invalidate()
+	a.mx.Lock()
+	a.discInvalidatedAt = time.Now()
+	a.mx.Unlock()
 
 	return nil
 }
