@@ -4,10 +4,13 @@
 package view
 
 import (
+	"context"
 	"errors"
 	"testing"
 
+	"github.com/derailed/k9s/internal"
 	"github.com/derailed/k9s/internal/client"
+	"github.com/derailed/k9s/internal/config/mock"
 	"github.com/derailed/k9s/internal/dao"
 	"github.com/derailed/k9s/internal/watch"
 	"github.com/stretchr/testify/require"
@@ -93,3 +96,24 @@ func (testFactory) Forwarders() watch.Forwarders {
 }
 func (testFactory) WaitForCacheSync()      {}
 func (testFactory) DeleteForwarder(string) {}
+
+type pfViewerStub struct {
+	ResourceViewer
+
+	app *App
+}
+
+func (s *pfViewerStub) App() *App {
+	return s.app
+}
+
+func TestPortForwardContextUsesPodName(t *testing.T) {
+	app := NewApp(mock.NewMockConfig(t))
+	app.BenchFile = "bench.yaml"
+	p := PortForwardExtender{ResourceViewer: &pfViewerStub{app: app}}
+
+	ctx := p.portForwardContext("ns/pod-1")(context.Background())
+
+	require.Equal(t, "ns/pod-1", ctx.Value(internal.KeyPath))
+	require.Equal(t, "bench.yaml", ctx.Value(internal.KeyBenchCfg))
+}

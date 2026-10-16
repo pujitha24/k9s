@@ -84,7 +84,7 @@ func (p *PortForwardExtender) showPFCmd(evt *tcell.EventKey) *tcell.EventKey {
 	}
 
 	pf := NewPortForward(client.PfGVR)
-	pf.SetContextFn(p.portForwardContext)
+	pf.SetContextFn(p.portForwardContext(podName))
 	if err := p.App().inject(pf, false); err != nil {
 		p.App().Flash().Err(err)
 	}
@@ -105,12 +105,16 @@ func (p *PortForwardExtender) fetchPodName(path string) (string, error) {
 	return ctrl.Pod(path)
 }
 
-func (p *PortForwardExtender) portForwardContext(ctx context.Context) context.Context {
-	if bc := p.App().BenchFile; bc != "" {
-		ctx = context.WithValue(ctx, internal.KeyBenchCfg, p.App().BenchFile)
-	}
+// portForwardContext scopes the port-forward list to the given pod path, as
+// forwarders are keyed by pod and the selected resource may not be a pod.
+func (p *PortForwardExtender) portForwardContext(podName string) ContextFunc {
+	return func(ctx context.Context) context.Context {
+		if bc := p.App().BenchFile; bc != "" {
+			ctx = context.WithValue(ctx, internal.KeyBenchCfg, p.App().BenchFile)
+		}
 
-	return context.WithValue(ctx, internal.KeyPath, p.GetTable().GetSelectedItem())
+		return context.WithValue(ctx, internal.KeyPath, podName)
+	}
 }
 
 // ----------------------------------------------------------------------------
