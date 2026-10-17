@@ -244,6 +244,10 @@ func (a *App) contextNames() ([]string, error) {
 }
 
 func (a *App) keyboard(evt *tcell.EventKey) *tcell.EventKey {
+	// Some PC keyboards send LF instead of CR for Enter. Treat it like Enter.
+	if evt.Key() == tcell.KeyLF {
+		evt = tcell.NewEventKey(tcell.KeyEnter, evt.Rune(), evt.Modifiers())
+	}
 	if k, ok := a.HasAction(ui.AsKey(evt)); ok && !a.Content.IsTopDialog() {
 		return k.Action(evt)
 	}
